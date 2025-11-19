@@ -20,8 +20,7 @@ if 'message_history' not in st.session_state:
     st.session_state['message_history'] = []
 
 if 'thread_id' not in st.session_state:
-    # No active thread until first message is sent
-    st.session_state['thread_id'] = None
+    st.session_state['thread_id'] = None  # no active thread at first
 
 if 'chat_threads' not in st.session_state:
     # List of thread_ids that already have at least one message
@@ -32,16 +31,37 @@ if 'thread_titles' not in st.session_state:
     st.session_state['thread_titles'] = {}
 
 if 'pending_new_chat' not in st.session_state:
-    # True means we're waiting for the first message of a new conversation
+    # True means next message starts a brand-new conversation
     st.session_state['pending_new_chat'] = True
+
+
+# **************************************** MAIN INPUT (handled BEFORE sidebar) *******
+
+# Chat input – we capture this early so we can create/rename the conversation
+user_input = st.chat_input('Type here')
+
+# If user sends a message that should start a new conversation:
+if user_input and (st.session_state['pending_new_chat'] or st.session_state['thread_id'] is None):
+    new_thread_id = generate_thread_id()
+    st.session_state['thread_id'] = new_thread_id
+    st.session_state['pending_new_chat'] = False
+
+    # Add to list of conversations (will appear immediately in sidebar)
+    if new_thread_id not in st.session_state['chat_threads']:
+        st.session_state['chat_threads'].append(new_thread_id)
+
+    # Use first user query as title (truncate if long)
+    short_title = user_input.strip()
+    if len(short_title) > 40:
+        short_title = short_title[:37] + "..."
+    st.session_state['thread_titles'][new_thread_id] = short_title
 
 
 # **************************************** Sidebar UI *********************************
 
 st.sidebar.title('LangGraph Chatbot')
 
-# New Chat button: just clear the current view and mark that the next message
-# starts a brand-new conversation. We DO NOT create a thread yet.
+# New Chat just prepares for a new thread; conversation appears after first query
 if st.sidebar.button('New Chat'):
     st.session_state['message_history'] = []
     st.session_state['thread_id'] = None
@@ -49,17 +69,16 @@ if st.sidebar.button('New Chat'):
 
 st.sidebar.header('My Conversations')
 
-# Show latest first
+# Show latest conversations first
 for thread_id in st.session_state['chat_threads'][::-1]:
-    # Get saved title or fallback to thread_id string
     title = st.session_state['thread_titles'].get(thread_id, str(thread_id))
 
-    # Important: give each button a unique key
     if st.sidebar.button(title, key=f"thread-btn-{thread_id}"):
+        # Switch to that thread
         st.session_state['thread_id'] = thread_id
-        st.session_state['pending_new_chat'] = False  # we're in an existing chat
-        messages = load_conversation(thread_id)
+        st.session_state['pending_new_chat'] = False
 
+        messages = load_conversation(thread_id)
         temp_messages = []
         for msg in messages:
             if isinstance(msg, HumanMessage):
@@ -73,38 +92,16 @@ for thread_id in st.session_state['chat_threads'][::-1]:
 
 # **************************************** Main UI ************************************
 
-# Display the conversation history
+# Show current conversation history
 for message in st.session_state['message_history']:
     with st.chat_message(message['role']):
         st.text(message['content'])
 
-user_input = st.chat_input('Type here')
-
+# Handle the message content (both for new and existing threads)
 if user_input:
-
-    # If this is the first message of a brand new chat, create a new thread now.
-    if st.session_state.get('pending_new_chat', False) or st.session_state.get('thread_id') is None:
-        new_thread_id = generate_thread_id()
-        st.session_state['thread_id'] = new_thread_id
-        st.session_state['pending_new_chat'] = False
-
-        # Add to the list of conversations
-        if new_thread_id not in st.session_state['chat_threads']:
-            st.session_state['chat_threads'].append(new_thread_id)
-
-        # Use the first user message as the title (truncated)
-        short_title = user_input.strip()
-        if len(short_title) > 40:
-            short_title = short_title[:37] + "..."
-        st.session_state['thread_titles'][new_thread_id] = short_title
-
-    else:
-        # Existing thread: don't change the title here
-        pass
-
     current_thread = st.session_state['thread_id']
 
-    # First add the message to message_history
+    # Append user message
     st.session_state['message_history'].append({'role': 'user', 'content': user_input})
     with st.chat_message('user'):
         st.text(user_input)
@@ -120,7 +117,6 @@ if user_input:
                 stream_mode="messages"
             ):
                 if isinstance(message_chunk, AIMessage):
-                    # yield only assistant tokens
                     yield message_chunk.content
 
         ai_message = st.write_stream(ai_only_stream())
