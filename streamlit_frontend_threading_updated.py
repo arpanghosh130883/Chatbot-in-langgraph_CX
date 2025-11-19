@@ -6,23 +6,7 @@ import uuid
 # **************************************** utility functions *************************
 
 def generate_thread_id():
-    thread_id = uuid.uuid4()
-    return thread_id
-
-def reset_chat():
-    thread_id = generate_thread_id()
-    st.session_state['thread_id'] = thread_id
-    add_thread(st.session_state['thread_id'])
-    # Set a temporary title until first user query
-    st.session_state['thread_titles'][thread_id] = "New chat"
-    st.session_state['message_history'] = []
-
-def add_thread(thread_id):
-    if thread_id not in st.session_state['chat_threads']:
-        st.session_state['chat_threads'].append(thread_id)
-        # Initialize title if not already there
-        if thread_id not in st.session_state['thread_titles']:
-            st.session_state['thread_titles'][thread_id] = "New chat"
+    return uuid.uuid4()
 
 def load_conversation(thread_id):
     state = chatbot.get_state(config={'configurable': {'thread_id': thread_id}})
@@ -31,43 +15,52 @@ def load_conversation(thread_id):
 
 
 # **************************************** Session Setup ******************************
+
 if 'message_history' not in st.session_state:
     st.session_state['message_history'] = []
 
 if 'thread_id' not in st.session_state:
-    st.session_state['thread_id'] = generate_thread_id()
+    # No active thread until first message is sent
+    st.session_state['thread_id'] = None
 
 if 'chat_threads' not in st.session_state:
+    # List of thread_ids that already have at least one message
     st.session_state['chat_threads'] = []
 
-# NEW: titles per thread_id
 if 'thread_titles' not in st.session_state:
+    # Mapping: thread_id -> title (first user query)
     st.session_state['thread_titles'] = {}
 
-add_thread(st.session_state['thread_id'])
+if 'pending_new_chat' not in st.session_state:
+    # True means we're waiting for the first message of a new conversation
+    st.session_state['pending_new_chat'] = True
 
 
 # **************************************** Sidebar UI *********************************
 
 st.sidebar.title('LangGraph Chatbot')
 
+# New Chat button: just clear the current view and mark that the next message
+# starts a brand-new conversation. We DO NOT create a thread yet.
 if st.sidebar.button('New Chat'):
-    reset_chat()
+    st.session_state['message_history'] = []
+    st.session_state['thread_id'] = None
+    st.session_state['pending_new_chat'] = True
 
 st.sidebar.header('My Conversations')
 
 # Show latest first
 for thread_id in st.session_state['chat_threads'][::-1]:
-    # Get saved title (first user query) or fallback to thread_id
+    # Get saved title or fallback to thread_id string
     title = st.session_state['thread_titles'].get(thread_id, str(thread_id))
 
     # Important: give each button a unique key
     if st.sidebar.button(title, key=f"thread-btn-{thread_id}"):
         st.session_state['thread_id'] = thread_id
+        st.session_state['pending_new_chat'] = False  # we're in an existing chat
         messages = load_conversation(thread_id)
 
         temp_messages = []
-
         for msg in messages:
             if isinstance(msg, HumanMessage):
                 role = 'user'
@@ -80,7 +73,7 @@ for thread_id in st.session_state['chat_threads'][::-1]:
 
 # **************************************** Main UI ************************************
 
-# loading the conversation history
+# Display the conversation history
 for message in st.session_state['message_history']:
     with st.chat_message(message['role']):
         st.text(message['content'])
@@ -89,25 +82,36 @@ user_input = st.chat_input('Type here')
 
 if user_input:
 
-    # If this is the first message in this thread, save it as the title
-    current_thread = st.session_state['thread_id']
-    # Only overwrite if title is default or missing
-    if (current_thread not in st.session_state['thread_titles'] or
-        st.session_state['thread_titles'][current_thread] in ["New chat", str(current_thread)]):
-        # Optionally truncate very long queries
+    # If this is the first message of a brand new chat, create a new thread now.
+    if st.session_state.get('pending_new_chat', False) or st.session_state.get('thread_id') is None:
+        new_thread_id = generate_thread_id()
+        st.session_state['thread_id'] = new_thread_id
+        st.session_state['pending_new_chat'] = False
+
+        # Add to the list of conversations
+        if new_thread_id not in st.session_state['chat_threads']:
+            st.session_state['chat_threads'].append(new_thread_id)
+
+        # Use the first user message as the title (truncated)
         short_title = user_input.strip()
         if len(short_title) > 40:
             short_title = short_title[:37] + "..."
-        st.session_state['thread_titles'][current_thread] = short_title
+        st.session_state['thread_titles'][new_thread_id] = short_title
 
-    # first add the message to message_history
+    else:
+        # Existing thread: don't change the title here
+        pass
+
+    current_thread = st.session_state['thread_id']
+
+    # First add the message to message_history
     st.session_state['message_history'].append({'role': 'user', 'content': user_input})
     with st.chat_message('user'):
         st.text(user_input)
 
-    CONFIG = {'configurable': {'thread_id': st.session_state['thread_id']}}
+    CONFIG = {'configurable': {'thread_id': current_thread}}
 
-    # get ai response
+    # Get AI response
     with st.chat_message("assistant"):
         def ai_only_stream():
             for message_chunk, metadata in chatbot.stream(
