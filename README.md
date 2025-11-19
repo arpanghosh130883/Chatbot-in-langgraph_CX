@@ -1,3 +1,105 @@
+###############################  How we are replacing the ThreadID with Chat first query  ##################################
+
+1️⃣ When you type the first message of a chat
+
+This block is the key:
+
+user_input = st.chat_input('Type here')
+
+# If user sends a message that should start a new conversation:
+if user_input and (st.session_state['pending_new_chat'] or st.session_state['thread_id'] is None):
+    new_thread_id = generate_thread_id()
+    st.session_state['thread_id'] = new_thread_id
+    st.session_state['pending_new_chat'] = False
+
+    # Add to list of conversations (will appear immediately in sidebar)
+    if new_thread_id not in st.session_state['chat_threads']:
+        st.session_state['chat_threads'].append(new_thread_id)
+
+    # Use first user query as title (truncate if long)
+    short_title = user_input.strip()
+    if len(short_title) > 40:
+        short_title = short_title[:37] + "..."
+    st.session_state['thread_titles'][new_thread_id] = short_title
+
+
+What happens here?
+
+user_input gets your text, e.g. "Explain the transformer architecture".
+
+If this is a new chat (pending_new_chat is True or thread_id is None):
+
+A new thread_id (UUID) is created.
+
+That thread_id is added to chat_threads.
+
+Then we compute short_title from user_input:
+
+short_title = "Explain the transformer architecture" (possibly truncated).
+
+We store this in:
+
+st.session_state['thread_titles'][new_thread_id] = short_title
+
+
+So now we have a mapping like:
+
+thread_titles = {
+    <some-uuid>: "Explain the transformer architecture ..."
+}
+
+
+That’s where the “first query name” is captured.
+
+2️⃣ How the sidebar shows the title instead of the UUID
+
+Later, in the sidebar loop:
+
+st.sidebar.header('My Conversations')
+
+# Show latest conversations first
+for thread_id in st.session_state['chat_threads'][::-1]:
+    title = st.session_state['thread_titles'].get(thread_id, str(thread_id))
+
+    if st.sidebar.button(title, key=f"thread-btn-{thread_id}"):
+        ...
+
+
+For each thread_id:
+
+We look up its title:
+
+title = st.session_state['thread_titles'].get(thread_id, str(thread_id))
+
+
+If we have stored a title, title becomes that first query text.
+
+Only if nothing is stored do we fall back to str(thread_id) (the UUID).
+
+We pass title to the button:
+
+st.sidebar.button(title, key=f"thread-btn-{thread_id}")
+
+
+So the button label is “Explain the transformer architecture …”, not the UUID.
+
+3️⃣ Put very simply
+
+Capture first query → store as title:
+
+st.session_state['thread_titles'][new_thread_id] = user_input_short
+
+
+Read that title for display:
+
+title = st.session_state['thread_titles'].get(thread_id, str(thread_id))
+st.sidebar.button(title, ...)
+
+
+#######################################################################################################################
+
+########################################### How user first query as we type immediately gets added on the sidebar  after clsicking on New Chat  ##########################
+
 Changes Made (Bullet-Point Summary)
 1. Thread Creation Logic
 
@@ -336,4 +438,5 @@ After
 if new_thread_id not in st.session_state['chat_threads']:
     st.session_state['chat_threads'].append(new_thread_id)
 
-    
+############################################################################################################
+
