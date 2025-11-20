@@ -250,5 +250,3 @@ st.sidebar.button(title)
 
 This README documents all improvements made to the chat application including thread creation, title assignment, sidebar updates, and clean removal of unnecessary logic.
 
-If needed, additional sections like *Architecture Overview*, *Setup Instructions*, or *Flow Diagrams* can be added.
-
