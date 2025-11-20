@@ -143,7 +143,7 @@ add_thread(st.session_state['thread_id'])  # Adds empty thread immediately
 
 After
 
-# Thread is created only when user types first message
+###### Thread is created only when user types first message
 if user_input and (st.session_state['pending_new_chat'] or st.session_state['thread_id'] is None):
     new_thread_id = generate_thread_id()
     st.session_state['thread_id'] = new_thread_id
